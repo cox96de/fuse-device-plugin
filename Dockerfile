@@ -1,8 +1,8 @@
+FROM golang:1.20 as builder
+ADD . /src
+RUN go env -w GOPROXY=https://goproxy.cn,direct
+RUN cd /src && CGO_ENABLED=0 go build -o fuse-device-plugin .
 FROM debian:stretch-slim
+COPY --from=builder /src/fuse-device-plugin /usr/bin/fuse-device-plugin
 
-# fuse-device-plugin binary based on architecture
-ARG build_arch
-COPY fuse-device-plugin-${build_arch} /usr/bin/fuse-device-plugin
-
-# replace with your desire device count
-CMD ["fuse-device-plugin", "--mounts_allowed", "5000"]
+CMD ["fuse-device-plugin"]

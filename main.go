@@ -1,21 +1,19 @@
 package main
 
 import (
+	"flag"
 	"log"
 	"os"
 	"syscall"
 
-	"flag"
-
 	"github.com/fsnotify/fsnotify"
-	pluginapi "k8s.io/kubernetes/pkg/kubelet/apis/deviceplugin/v1beta1"
-)
-
-var (
-	mountsAllowed = 5
+	pluginapi "k8s.io/kubelet/pkg/apis/deviceplugin/v1beta1"
 )
 
 func main() {
+	var (
+		mountsAllowed = 5
+	)
 	flag.IntVar(&mountsAllowed, "mounts_allowed", 5, "maximum times the fuse device can be mounted")
 	flag.Parse()
 
@@ -40,9 +38,12 @@ L:
 	for {
 		if restart {
 			if devicePlugin != nil {
-				devicePlugin.Stop()
+				if err := devicePlugin.Stop(); err != nil {
+					log.Printf("Failed to stop plugin: %+v", err)
+				}
 			}
 
+			log.Printf("Max device count: %d", mountsAllowed)
 			devicePlugin = NewFuseDevicePlugin(mountsAllowed)
 			if err := devicePlugin.Serve(); err != nil {
 				log.Println("Could not contact Kubelet, retrying. Did you enable the device plugin feature gate?")
@@ -54,12 +55,12 @@ L:
 		select {
 		case event := <-watcher.Events:
 			if event.Name == pluginapi.KubeletSocket && event.Op&fsnotify.Create == fsnotify.Create {
-				log.Printf("inotify: %s created, restarting.", pluginapi.KubeletSocket)
+				log.Printf("Inotify: %s created, restarting.", pluginapi.KubeletSocket)
 				restart = true
 			}
 
 		case err := <-watcher.Errors:
-			log.Printf("inotify: %s", err)
+			log.Printf("Inotify: %s", err)
 
 		case s := <-sigs:
 			switch s {
@@ -68,7 +69,9 @@ L:
 				restart = true
 			default:
 				log.Printf("Received signal \"%v\", shutting down.", s)
-				devicePlugin.Stop()
+				if err := devicePlugin.Stop(); err != nil {
+					log.Printf("Failed to stop plugin: %+v", err)
+				}
 				break L
 			}
 		}
