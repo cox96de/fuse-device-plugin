@@ -10,14 +10,12 @@ import (
 
 	"golang.org/x/net/context"
 	"google.golang.org/grpc"
-	pluginapi "k8s.io/kubernetes/pkg/kubelet/apis/deviceplugin/v1beta1"
+	pluginapi "k8s.io/kubelet/pkg/apis/deviceplugin/v1beta1"
 )
 
 const (
-	resourceName           = "github.com/fuse"
-	serverSock             = pluginapi.DevicePluginPath + "fuse.sock"
-	envDisableHealthChecks = "DP_DISABLE_HEALTHCHECKS"
-	allHealthChecks        = "xids"
+	resourceName = "github.com/fuse"
+	serverSock   = pluginapi.DevicePluginPath + "fuse.sock"
 )
 
 // FuseDevicePlugin implements the Kubernetes device plugin API
@@ -43,6 +41,10 @@ func NewFuseDevicePlugin(number int) *FuseDevicePlugin {
 
 func (m *FuseDevicePlugin) GetDevicePluginOptions(context.Context, *pluginapi.Empty) (*pluginapi.DevicePluginOptions, error) {
 	return &pluginapi.DevicePluginOptions{}, nil
+}
+
+func (m *FuseDevicePlugin) GetPreferredAllocation(context.Context, *pluginapi.PreferredAllocationRequest) (*pluginapi.PreferredAllocationResponse, error) {
+	return &pluginapi.PreferredAllocationResponse{}, nil
 }
 
 func (m *FuseDevicePlugin) PreStartContainer(context.Context, *pluginapi.PreStartContainerRequest) (*pluginapi.PreStartContainerResponse, error) {
@@ -131,7 +133,9 @@ func (m *FuseDevicePlugin) Register(kubeletEndpoint, resourceName string) error 
 
 // ListAndWatch lists devices and update that list according to the health status
 func (m *FuseDevicePlugin) ListAndWatch(e *pluginapi.Empty, s pluginapi.DevicePlugin_ListAndWatchServer) error {
-	s.Send(&pluginapi.ListAndWatchResponse{Devices: m.devs})
+	if err := s.Send(&pluginapi.ListAndWatchResponse{Devices: m.devs}); err != nil {
+		log.Printf("Failed to send message when start to list and watch: %+v", err)
+	}
 
 	for {
 		select {
@@ -139,14 +143,16 @@ func (m *FuseDevicePlugin) ListAndWatch(e *pluginapi.Empty, s pluginapi.DevicePl
 			return nil
 		case d := <-m.health:
 			d.Health = pluginapi.Unhealthy
-			s.Send(&pluginapi.ListAndWatchResponse{Devices: m.devs})
+			if err := s.Send(&pluginapi.ListAndWatchResponse{Devices: m.devs}); err != nil {
+				log.Printf("Failed to send message when plugin is to be health: %+v", err)
+			}
 		}
 	}
 }
 
-// func (m *FuseDevicePlugin) unhealthy(dev *pluginapi.Device) {
-// 	m.health <- dev
-// }
+func (m *FuseDevicePlugin) unhealthy(dev *pluginapi.Device) {
+	m.health <- dev
+}
 
 // Allocate which return list of devices.
 func (m *FuseDevicePlugin) Allocate(ctx context.Context, reqs *pluginapi.AllocateRequest) (*pluginapi.AllocateResponse, error) {
@@ -205,6 +211,5 @@ func (m *FuseDevicePlugin) Serve() error {
 		return err
 	}
 	log.Println("Registered device plugin with Kubelet")
-
 	return nil
 }
